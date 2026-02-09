@@ -23,7 +23,7 @@ st.markdown("""
     }
     </style>
     <div class="footer">
-        <p>© 2026 Hanifka. Developed for Security Operations & SIEM Analysis.</p>
+        <p>© 2026 Hanifka. Developed for Security Operations.</p>
     </div>
     """, unsafe_allow_html=True)
 
