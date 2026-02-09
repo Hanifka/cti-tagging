@@ -4,7 +4,28 @@ import pandas as pd
 import time
 
 # Konfigurasi Halaman
+# Konfigurasi Halaman
 st.set_page_config(page_title="AbuseIPDB Bulk Checker", page_icon="🛡️")
+
+# Custom CSS untuk Footer
+st.markdown("""
+    <style>
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: transparent;
+        color: grey;
+        text-align: center;
+        padding: 10px;
+        font-size: 12px;
+    }
+    </style>
+    <div class="footer">
+        <p>© 2026 Hanifka. Developed for Security Operations & SIEM Analysis.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.title("🛡️ AbuseIPDB Bulk Checker")
 st.markdown("Masukkan daftar IP (satu per baris) untuk mengecek skor reputasi secara massal.")
