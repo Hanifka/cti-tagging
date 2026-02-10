@@ -58,8 +58,7 @@ with st.sidebar:
     if use_opencti:
         st.subheader("OpenCTI")
         opencti_url = st.text_input(
-            "OpenCTI URL",
-            "https://cti-socfs.visionet.co.id"
+            "OpenCTI URL"
         )
         opencti_token = st.text_input(
             "OpenCTI Token",
