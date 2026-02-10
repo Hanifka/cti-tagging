@@ -3,7 +3,11 @@ import requests
 import pandas as pd
 import urllib3
 import time
-from pycti import OpenCTIApiClient
+
+try:
+    from pycti import OpenCTIApiClient
+except ModuleNotFoundError:
+    OpenCTIApiClient = None
 
 # ============================================================
 # PAGE CONFIG
@@ -17,32 +21,10 @@ st.set_page_config(
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
-# FOOTER
-# ============================================================
-st.markdown("""
-<style>
-.footer {
-    position: fixed;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    background-color: transparent;
-    color: grey;
-    text-align: center;
-    padding: 10px;
-    font-size: 12px;
-}
-</style>
-<div class="footer">
-<p>© 2026 Hanifka — SOC Automation</p>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================================
 # TITLE
 # ============================================================
 st.title("🛡️ SOC IP Reputation Checker")
-st.markdown("Pilih sumber intel: **OpenCTI**, **AbuseIPDB**, atau **keduanya**")
+st.markdown("Pilih sumber intel: **OpenCTI** atau **AbuseIPDB**")
 
 # ============================================================
 # SIDEBAR
@@ -50,15 +32,19 @@ st.markdown("Pilih sumber intel: **OpenCTI**, **AbuseIPDB**, atau **keduanya**")
 with st.sidebar:
     st.header("🔐 Configuration")
 
-    use_opencti = st.checkbox("Use OpenCTI", value=True)
+    use_opencti = st.checkbox("Use OpenCTI", value=False)
     use_abuseipdb = st.checkbox("Use AbuseIPDB", value=False)
 
     st.divider()
 
+    opencti_url = None
+    opencti_token = None
+
     if use_opencti:
+        st.subheader("OpenCTI")
         opencti_url = st.text_input(
             "OpenCTI URL",
-            "https://cti-socfs.visionet.co.id"
+            placeholder="https://opencti.your-org.local"
         )
         opencti_token = st.text_input(
             "OpenCTI Token",
@@ -66,6 +52,7 @@ with st.sidebar:
         )
 
     if use_abuseipdb:
+        st.subheader("AbuseIPDB")
         abuse_api_key = st.text_input(
             "AbuseIPDB API Key",
             type="password"
@@ -89,7 +76,6 @@ query GetIPReputation($filters: FilterGroup) {
   stixCyberObservables(filters: $filters) {
     edges {
       node {
-        observable_value
         x_opencti_score
         objectLabel {
           value
@@ -101,7 +87,7 @@ query GetIPReputation($filters: FilterGroup) {
 """
 
 # ============================================================
-# OPENCTI LOOKUP (SAFE DEFAULT)
+# OPENCTI LOOKUP (SAFE)
 # ============================================================
 def opencti_lookup(client, ip):
     result = {
@@ -147,7 +133,7 @@ def opencti_lookup(client, ip):
         return result
 
 # ============================================================
-# ABUSEIPDB LOOKUP (SAFE DEFAULT)
+# ABUSEIPDB LOOKUP
 # ============================================================
 def abuseipdb_lookup(ip):
     result = {
@@ -186,23 +172,29 @@ if st.button("🚀 Start Scan"):
         st.warning("IP list is empty")
         st.stop()
 
-    if use_opencti and not opencti_token:
-        st.error("OpenCTI token required")
-        st.stop()
-
-    if use_abuseipdb and not abuse_api_key:
-        st.error("AbuseIPDB API key required")
-        st.stop()
-
     ip_list = [i.strip() for i in raw_ips.splitlines() if i.strip()]
     rows = []
 
+    client = None
     if use_opencti:
-        client = OpenCTIApiClient(
-            opencti_url,
-            opencti_token,
-            ssl_verify=False
-        )
+        if not OpenCTIApiClient:
+            st.error("pycti not installed")
+            st.stop()
+
+        if not opencti_url or not opencti_token:
+            st.error("OpenCTI URL & Token required")
+            st.stop()
+
+        try:
+            client = OpenCTIApiClient(
+                opencti_url,
+                opencti_token,
+                ssl_verify=False,
+                perform_health_check=False   # 🔥 FIX UTAMA
+            )
+        except Exception as e:
+            st.error(f"Failed to init OpenCTI: {e}")
+            st.stop()
 
     progress = st.progress(0)
     status = st.empty()
@@ -235,14 +227,12 @@ if st.button("🚀 Start Scan"):
         time.sleep(0.15)
 
     df = pd.DataFrame(rows)
-
     st.success(f"Completed: {len(df)} IP processed")
     st.dataframe(df, use_container_width=True)
 
-    csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "📥 Download CSV",
-        csv,
+        df.to_csv(index=False).encode("utf-8"),
         "ip_reputation.csv",
         "text/csv"
     )
