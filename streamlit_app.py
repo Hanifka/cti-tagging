@@ -45,7 +45,7 @@ st.title("🛡️ SOC IP Reputation Checker")
 st.markdown("Pilih sumber intel: **OpenCTI**, **AbuseIPDB**, atau **keduanya**")
 
 # ============================================================
-# SIDEBAR CONFIG
+# SIDEBAR
 # ============================================================
 with st.sidebar:
     st.header("🔐 Configuration")
@@ -56,9 +56,9 @@ with st.sidebar:
     st.divider()
 
     if use_opencti:
-        st.subheader("OpenCTI")
         opencti_url = st.text_input(
-            "OpenCTI URL"
+            "OpenCTI URL",
+            "https://cti-socfs.visionet.co.id"
         )
         opencti_token = st.text_input(
             "OpenCTI Token",
@@ -66,15 +66,11 @@ with st.sidebar:
         )
 
     if use_abuseipdb:
-        st.subheader("AbuseIPDB")
         abuse_api_key = st.text_input(
             "AbuseIPDB API Key",
             type="password"
         )
-        max_age = st.slider(
-            "Max Age (days)",
-            30, 365, 90
-        )
+        max_age = st.slider("Max Age (days)", 30, 365, 90)
 
 # ============================================================
 # INPUT
@@ -86,7 +82,7 @@ raw_ips = st.text_area(
 )
 
 # ============================================================
-# OPENCTI
+# OPENCTI QUERY
 # ============================================================
 QUERY_REPUTATION = """
 query GetIPReputation($filters: FilterGroup) {
@@ -104,7 +100,16 @@ query GetIPReputation($filters: FilterGroup) {
 }
 """
 
+# ============================================================
+# OPENCTI LOOKUP (SAFE DEFAULT)
+# ============================================================
 def opencti_lookup(client, ip):
+    result = {
+        "cti_score": None,
+        "cti_label": None,
+        "cti_status": "NOT_FOUND"
+    }
+
     variables = {
         "filters": {
             "mode": "and",
@@ -121,54 +126,57 @@ def opencti_lookup(client, ip):
         edges = r["data"]["stixCyberObservables"]["edges"]
 
         if not edges:
-            return {}
+            return result
 
         node = edges[0]["node"]
         score = node.get("x_opencti_score") or 0
         label = node["objectLabel"]["value"] if node.get("objectLabel") else None
 
-        status = (
+        result["cti_score"] = score
+        result["cti_label"] = label
+        result["cti_status"] = (
             "CLEAN" if score < 40
             else "SUSPICIOUS" if score < 80
             else "MALICIOUS"
         )
-
-        return {
-            "cti_score": score,
-            "cti_label": label,
-            "cti_status": status
-        }
+        return result
 
     except Exception as e:
-        return {
-            "cti_score": "ERR",
-            "cti_label": str(e),
-            "cti_status": "ERROR"
-        }
+        result["cti_status"] = "ERROR"
+        result["cti_label"] = str(e)
+        return result
 
 # ============================================================
-# ABUSEIPDB
+# ABUSEIPDB LOOKUP (SAFE DEFAULT)
 # ============================================================
 def abuseipdb_lookup(ip):
-    url = "https://api.abuseipdb.com/api/v2/check"
-    headers = {"Key": abuse_api_key, "Accept": "application/json"}
-    params = {"ipAddress": ip, "maxAgeInDays": str(max_age)}
+    result = {
+        "abuse_score": None,
+        "country": None,
+        "isp": None,
+        "total_reports": None
+    }
 
     try:
+        url = "https://api.abuseipdb.com/api/v2/check"
+        headers = {"Key": abuse_api_key, "Accept": "application/json"}
+        params = {"ipAddress": ip, "maxAgeInDays": str(max_age)}
+
         r = requests.get(url, headers=headers, params=params, timeout=10)
         if r.status_code != 200:
-            return {}
+            return result
 
         d = r.json()["data"]
-        return {
+        result.update({
             "abuse_score": d.get("abuseConfidenceScore"),
             "country": d.get("countryCode"),
             "isp": d.get("isp"),
             "total_reports": d.get("totalReports")
-        }
+        })
+        return result
 
     except:
-        return {}
+        return result
 
 # ============================================================
 # MAIN
@@ -205,23 +213,12 @@ if st.button("🚀 Start Scan"):
 
         if use_opencti:
             row.update(opencti_lookup(client, ip))
+        else:
+            row.update({
+                "cti_score": None,
+                "cti_label": None,
+                "cti_status": "DISABLED"
+            })
 
         if use_abuseipdb:
-            row.update(abuseipdb_lookup(ip))
-
-        rows.append(row)
-        progress.progress((i + 1) / len(ip_list))
-        time.sleep(0.2)
-
-    df = pd.DataFrame(rows)
-
-    st.success(f"Completed: {len(df)} IP processed")
-    st.dataframe(df, use_container_width=True)
-
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "📥 Download CSV",
-        csv,
-        "ip_reputation.csv",
-        "text/csv"
-    )
+            row.update(abuseipdb_lookup(ip_
