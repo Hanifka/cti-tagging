@@ -1,106 +1,228 @@
 import streamlit as st
 import requests
 import pandas as pd
+import urllib3
 import time
+from pycti import OpenCTIApiClient
 
-# Konfigurasi Halaman
-# Konfigurasi Halaman
-st.set_page_config(page_title="AbuseIPDB Bulk Checker", page_icon="🛡️")
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+st.set_page_config(
+    page_title="SOC IP Reputation Checker",
+    page_icon="🛡️",
+    layout="wide"
+)
 
-# Custom CSS untuk Footer
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ============================================================
+# FOOTER
+# ============================================================
 st.markdown("""
-    <style>
-    .footer {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        background-color: transparent;
-        color: grey;
-        text-align: center;
-        padding: 10px;
-        font-size: 12px;
-    }
-    </style>
-    <div class="footer">
-        <p>© 2026 Hanifka. Developed for Security Operations.</p>
-    </div>
-    """, unsafe_allow_html=True)
+<style>
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: transparent;
+    color: grey;
+    text-align: center;
+    padding: 10px;
+    font-size: 12px;
+}
+</style>
+<div class="footer">
+<p>© 2026 Hanifka — SOC Automation</p>
+</div>
+""", unsafe_allow_html=True)
 
-st.title("🛡️ AbuseIPDB Bulk Checker")
-st.markdown("Masukkan daftar IP (satu per baris) untuk mengecek skor reputasi secara massal.")
+# ============================================================
+# TITLE
+# ============================================================
+st.title("🛡️ SOC IP Reputation Checker")
+st.markdown("Pilih sumber intel: **OpenCTI**, **AbuseIPDB**, atau **keduanya**")
 
-# Sidebar untuk API Key
+# ============================================================
+# SIDEBAR CONFIG
+# ============================================================
 with st.sidebar:
-    st.header("Konfigurasi")
-    api_key = st.text_input("AbuseIPDB API Key", type="password")
-    st.info("Dapatkan API Key di [AbuseIPDB](https://www.abuseipdb.com/account/api)")
-    max_age = st.slider("Max Age (Hari)", 30, 365, 90)
+    st.header("🔐 Configuration")
 
-# Input Area
-raw_ips = st.text_area("Paste Daftar IP di sini:", height=200, placeholder="1.1.1.1\n8.8.8.8")
+    use_opencti = st.checkbox("Use OpenCTI", value=True)
+    use_abuseipdb = st.checkbox("Use AbuseIPDB", value=False)
 
-if st.button("Mulai Scanning"):
-    if not api_key:
-        st.error("Silakan masukkan API Key terlebih dahulu!")
-    elif not raw_ips.strip():
-        st.warning("Daftar IP kosong.")
-    else:
-        # Parsing IP
-        ip_list = [ip.strip() for ip in raw_ips.splitlines() if ip.strip()]
-        total_ips = len(ip_list)
-        
-        results = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    st.divider()
 
-        ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
-        headers = {'Key': api_key, 'Accept': 'application/json'}
+    if use_opencti:
+        st.subheader("OpenCTI")
+        opencti_url = st.text_input(
+            "OpenCTI URL",
+            "https://cti-socfs.visionet.co.id"
+        )
+        opencti_token = st.text_input(
+            "OpenCTI Token",
+            type="password"
+        )
 
-        for i, ip in enumerate(ip_list):
-            status_text.text(f"Memproses {i+1}/{total_ips}: {ip}")
-            
-            params = {'ipAddress': ip, 'maxAgeInDays': str(max_age)}
-            
-            try:
-                response = requests.get(ABUSEIPDB_API_URL, headers=headers, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json().get('data')
-                    results.append({
-                        "IP Address": data.get('ipAddress'),
-                        "Confidence Score": f"{data.get('abuseConfidenceScore')}%",
-                        "Country": data.get('countryCode'),
-                        "ISP": data.get('isp'),
-                        "Domain": data.get('domain'),
-                        "Total Reports": data.get('totalReports')
-                    })
-                elif response.status_code == 429:
-                    st.error("Rate limit tercapai! Gunakan akun premium atau tunggu beberapa saat.")
-                    break
-                else:
-                    st.warning(f"Gagal mengecek {ip}: Status {response.status_code}")
-            
-            except Exception as e:
-                st.error(f"Error pada {ip}: {str(e)}")
+    if use_abuseipdb:
+        st.subheader("AbuseIPDB")
+        abuse_api_key = st.text_input(
+            "AbuseIPDB API Key",
+            type="password"
+        )
+        max_age = st.slider(
+            "Max Age (days)",
+            30, 365, 90
+        )
 
-            # Update Progress
-            progress_bar.progress((i + 1) / total_ips)
-            time.sleep(0.5) # Delay kecil untuk stabilitas UI
+# ============================================================
+# INPUT
+# ============================================================
+raw_ips = st.text_area(
+    "📥 Paste IP list (one per line)",
+    height=220,
+    placeholder="1.1.1.1\n8.8.8.8"
+)
 
-        # Tampilkan Hasil
-        if results:
-            df = pd.DataFrame(results)
-            st.success(f"Selesai! Berhasil memproses {len(results)} IP.")
-            
-            # Tampilkan Tabel
-            st.dataframe(df, use_container_width=True)
+# ============================================================
+# OPENCTI
+# ============================================================
+QUERY_REPUTATION = """
+query GetIPReputation($filters: FilterGroup) {
+  stixCyberObservables(filters: $filters) {
+    edges {
+      node {
+        observable_value
+        x_opencti_score
+        objectLabel {
+          value
+        }
+      }
+    }
+  }
+}
+"""
 
-            # Fitur Download
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Hasil sebagai CSV",
-                data=csv,
-                file_name="abuseipdb_results.csv",
-                mime="text/csv",
-            )
+def opencti_lookup(client, ip):
+    variables = {
+        "filters": {
+            "mode": "and",
+            "filters": [
+                {"key": "value", "values": [ip], "operator": "eq"},
+                {"key": "entity_type", "values": ["IPv4-Addr"], "operator": "eq"}
+            ],
+            "filterGroups": []
+        }
+    }
+
+    try:
+        r = client.query(QUERY_REPUTATION, variables)
+        edges = r["data"]["stixCyberObservables"]["edges"]
+
+        if not edges:
+            return {}
+
+        node = edges[0]["node"]
+        score = node.get("x_opencti_score") or 0
+        label = node["objectLabel"]["value"] if node.get("objectLabel") else None
+
+        status = (
+            "CLEAN" if score < 40
+            else "SUSPICIOUS" if score < 80
+            else "MALICIOUS"
+        )
+
+        return {
+            "cti_score": score,
+            "cti_label": label,
+            "cti_status": status
+        }
+
+    except Exception as e:
+        return {
+            "cti_score": "ERR",
+            "cti_label": str(e),
+            "cti_status": "ERROR"
+        }
+
+# ============================================================
+# ABUSEIPDB
+# ============================================================
+def abuseipdb_lookup(ip):
+    url = "https://api.abuseipdb.com/api/v2/check"
+    headers = {"Key": abuse_api_key, "Accept": "application/json"}
+    params = {"ipAddress": ip, "maxAgeInDays": str(max_age)}
+
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=10)
+        if r.status_code != 200:
+            return {}
+
+        d = r.json()["data"]
+        return {
+            "abuse_score": d.get("abuseConfidenceScore"),
+            "country": d.get("countryCode"),
+            "isp": d.get("isp"),
+            "total_reports": d.get("totalReports")
+        }
+
+    except:
+        return {}
+
+# ============================================================
+# MAIN
+# ============================================================
+if st.button("🚀 Start Scan"):
+    if not raw_ips.strip():
+        st.warning("IP list is empty")
+        st.stop()
+
+    if use_opencti and not opencti_token:
+        st.error("OpenCTI token required")
+        st.stop()
+
+    if use_abuseipdb and not abuse_api_key:
+        st.error("AbuseIPDB API key required")
+        st.stop()
+
+    ip_list = [i.strip() for i in raw_ips.splitlines() if i.strip()]
+    rows = []
+
+    if use_opencti:
+        client = OpenCTIApiClient(
+            opencti_url,
+            opencti_token,
+            ssl_verify=False
+        )
+
+    progress = st.progress(0)
+    status = st.empty()
+
+    for i, ip in enumerate(ip_list):
+        status.text(f"Processing {i+1}/{len(ip_list)} → {ip}")
+        row = {"ip": ip}
+
+        if use_opencti:
+            row.update(opencti_lookup(client, ip))
+
+        if use_abuseipdb:
+            row.update(abuseipdb_lookup(ip))
+
+        rows.append(row)
+        progress.progress((i + 1) / len(ip_list))
+        time.sleep(0.2)
+
+    df = pd.DataFrame(rows)
+
+    st.success(f"Completed: {len(df)} IP processed")
+    st.dataframe(df, use_container_width=True)
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📥 Download CSV",
+        csv,
+        "ip_reputation.csv",
+        "text/csv"
+    )
