@@ -221,4 +221,28 @@ if st.button("🚀 Start Scan"):
             })
 
         if use_abuseipdb:
-            row.update(abuseipdb_lookup(ip_
+            row.update(abuseipdb_lookup(ip))
+        else:
+            row.update({
+                "abuse_score": None,
+                "country": None,
+                "isp": None,
+                "total_reports": None
+            })
+
+        rows.append(row)
+        progress.progress((i + 1) / len(ip_list))
+        time.sleep(0.15)
+
+    df = pd.DataFrame(rows)
+
+    st.success(f"Completed: {len(df)} IP processed")
+    st.dataframe(df, use_container_width=True)
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📥 Download CSV",
+        csv,
+        "ip_reputation.csv",
+        "text/csv"
+    )
