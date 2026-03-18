@@ -3,4 +3,4 @@ pycti
 pandas
 requests
 urllib3
-python-magic-bin
+
